@@ -58,6 +58,7 @@ public class HomeActivity extends Activity implements SceneView.Listener {
     private String liveTvPkg, usbPkg, ambilightAction, place;
     private double lat, lon;
     private boolean located;
+    private boolean fahrenheit;
     private float density;
 
     private boolean appsOpen;
@@ -82,7 +83,7 @@ public class HomeActivity extends Activity implements SceneView.Listener {
     private final Runnable weatherTick = new Runnable() {
         @Override
         public void run() {
-            Weather.fetch(HomeActivity.this, lat, lon, text -> showWeather(text));
+            Weather.fetch(HomeActivity.this, lat, lon, fahrenheit, text -> showWeather(text));
             handler.postDelayed(this, Weather.REFRESH_MS);
         }
     };
@@ -111,6 +112,7 @@ public class HomeActivity extends Activity implements SceneView.Listener {
         usbPkg = getString(R.string.usb_package);
         ambilightAction = getString(R.string.ambilight_action);
         place = getString(R.string.location_name);
+        fahrenheit = "fahrenheit".equalsIgnoreCase(getString(R.string.weather_temperature_unit));
         try {
             lat = Double.parseDouble(getString(R.string.location_latitude));
             lon = Double.parseDouble(getString(R.string.location_longitude));
@@ -149,7 +151,7 @@ public class HomeActivity extends Activity implements SceneView.Listener {
         findViewById(R.id.ambilight).setOnKeyListener(topRow);
         findViewById(R.id.settings).setOnKeyListener(topRow);
 
-        weather.setText(weatherLine(Weather.cached(this)));
+        weather.setText(weatherLine(Weather.cached(this, fahrenheit)));
         readPhaseOverride(getIntent());
     }
 
@@ -179,7 +181,8 @@ public class HomeActivity extends Activity implements SceneView.Listener {
         loadApps();
         buildInputs();
         minuteTick.run();
-        if (located) handler.postDelayed(weatherTick, Weather.stale(this) ? 0 : Weather.REFRESH_MS);
+        if (located) handler.postDelayed(weatherTick,
+                Weather.stale(this, fahrenheit) ? 0 : Weather.REFRESH_MS);
         scene.setRunning(true);
         restoreFocus();
     }

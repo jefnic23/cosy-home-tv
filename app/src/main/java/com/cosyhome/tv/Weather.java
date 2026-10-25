@@ -26,18 +26,25 @@ final class Weather {
     private Weather() {
     }
 
-    /** The last reading, e.g. "11° Partly cloudy", or "" when there has never been one. */
-    static String cached(Context ctx) {
-        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("text", "");
+    /** Show a cached reading only when it uses the requested temperature unit. */
+    static String cached(Context ctx, boolean fahrenheit) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        return unitMatches(prefs, fahrenheit) ? prefs.getString("text", "") : "";
     }
 
-    static boolean stale(Context ctx) {
-        long at = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("at", 0);
-        return System.currentTimeMillis() - at > REFRESH_MS;
+    static boolean stale(Context ctx, boolean fahrenheit) {
+        SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        return !unitMatches(prefs, fahrenheit)
+                || System.currentTimeMillis() - prefs.getLong("at", 0) > REFRESH_MS;
+    }
+
+    private static boolean unitMatches(SharedPreferences prefs, boolean fahrenheit) {
+        // Old readings were Celsius and had no unit stored. Switching units forces a fresh fetch.
+        return prefs.getString("unit", "celsius").equals(fahrenheit ? "fahrenheit" : "celsius");
     }
 
     /** Fetches on a background thread; {@code done} runs on the main thread, only on success. */
-    static void fetch(Context ctx, double lat, double lon, Consumer<String> done) {
+    static void fetch(Context ctx, double lat, double lon, boolean fahrenheit, Consumer<String> done) {
         Context app = ctx.getApplicationContext();
         Handler main = new Handler(Looper.getMainLooper());
         new Thread(() -> {
@@ -46,16 +53,19 @@ final class Weather {
                 // Two decimal places, about a kilometre: close enough for the weather.
                 URL url = new URL(String.format(Locale.ROOT,
                         "https://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f"
-                                + "&current=temperature_2m,weather_code&timezone=auto", lat, lon));
+                                + "&current=temperature_2m,weather_code&timezone=auto"
+                                + (fahrenheit ? "&temperature_unit=fahrenheit" : ""), lat, lon));
                 conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(10_000);
                 conn.setReadTimeout(10_000);
                 if (conn.getResponseCode() != 200) return;
                 JSONObject current = new JSONObject(read(conn.getInputStream())).getJSONObject("current");
-                String text = Math.round(current.getDouble("temperature_2m")) + "° "
+                String text = Math.round(current.getDouble("temperature_2m"))
+                        + (fahrenheit ? "°F " : "° ")
                         + describe(current.getInt("weather_code"));
                 SharedPreferences.Editor e = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
-                e.putString("text", text).putLong("at", System.currentTimeMillis()).apply();
+                e.putString("text", text).putString("unit", fahrenheit ? "fahrenheit" : "celsius")
+                        .putLong("at", System.currentTimeMillis()).apply();
                 main.post(() -> done.accept(text));
             } catch (Exception ignored) {
                 // Offline or a bad reply: keep showing the last reading and try again next time.
